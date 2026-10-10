@@ -1,5 +1,4 @@
 flask
 requests
-NaijaBet_Api
-brotli
+
 
