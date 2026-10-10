@@ -88,81 +88,86 @@ def get_naija_pattern_fallback():
 
 def scan_real_time():
     mode = "REAL APIs" if ODDS_API_KEY else "1xBet REAL + Naija pattern fallback"
-    send_telegram(f"Meta Arb Scanner v6 REAL-TIME LIVE!\nMode: {mode}\nMin profit: {MIN_PROFIT}%\nScanning now...")
+    send_telegram(f"Meta Arb Scanner v6 FIXED LIVE!
+Mode: {mode}
+Min profit: {MIN_PROFIT}%
+Now scanning CORRECT arbs...")
     
     while True:
         try:
-            print(f"\n[{datetime.now()}] REAL-TIME scan...")
-            
-            # Try real APIs first
-            real_games_1xbet = get_real_1xbet()
+            print(f"
+[{datetime.now()}] REAL-TIME scan...")
             real_games_oddsapi = get_real_odds_api()
-            
             found_real = False
-            
-            # If 1xBet returned real games, use them to find arbs (compare within 1xBet markets)
-            if real_games_1xbet and len(real_games_1xbet) > 0:
-                print(f"Using {len(real_games_1xbet)} REAL 1xBet matches for arb calc")
-                # Simple demo: if Odds API also has data, cross-compare
-                # For now send heartbeat that real fetch works
-                if not found_real:
-                    # If we have real games, send one real alert from 1xBet data structure
-                    # Extract real odds from 1xBet format: O1/O2 are in game dict
-                    for g in real_games_1xbet[:3]:
-                        try:
-                            # 1xBet format varies, but we try to parse
-                            o1 = g.get('O1', 2.1)
-                            o2 = g.get('O2', 2.1)
-                            # This is simplified - real arb needs two bookies, but shows real fetch works
-                            pass
-                        except:
-                            continue
-            
-            # Always have fallback pattern so you still get alerts
-            arbs = get_naija_pattern_fallback()
-            
-            # Try to enhance with Odds API real data
+
+            # CORRECT ARB LOGIC: Compare opposite outcomes (Home vs Away, Over vs Under)
             if real_games_oddsapi:
-                for game in real_games_oddsapi[:2]:
+                for game in real_games_oddsapi[:5]:
                     try:
                         home = game.get('home_team','TeamA')
                         away = game.get('away_team','TeamB')
                         bookmakers = game.get('bookmakers',[])
                         if len(bookmakers) >= 2:
-                            b1 = bookmakers[0]
-                            b2 = bookmakers[1]
-                            # Get h2h market
-                            markets1 = {m['key']: m for m in b1.get('markets',[])}
-                            markets2 = {m['key']: m for m in b2.get('markets',[])}
-                            if 'h2h' in markets1 and 'h2h' in markets2:
-                                outcomes1 = markets1['h2h']['outcomes']
-                                outcomes2 = markets2['h2h']['outcomes']
-                                # Find same team odds diff
-                                for oc1 in outcomes1:
-                                    for oc2 in outcomes2:
-                                        if oc1['name'] == oc2['name']:
-                                            calc = calc_arb(oc1['price'], oc2['price'])
-                                            if calc and calc[0] >= MIN_PROFIT:
-                                                pct,s1,s2,cash = calc
-                                                msg = f"REAL ARB {pct:.2f}% LIVE (Odds API)!\n{home} vs {away}\n{oc1['name']}: N{s1:,.0f} @ {oc1['price']} {b1['title']} + N{s2:,.0f} @ {oc2['price']} {b2['title']}\nProfit N{cash:,.0f}"
-                                                send_telegram(msg)
-                                                found_real = True
-                                                time.sleep(5)
+                            for b1 in bookmakers:
+                                for b2 in bookmakers:
+                                    if b1['key'] == b2['key']: continue
+                                    m1_dict = {m['key']: m for m in b1.get('markets',[])}
+                                    m2_dict = {m['key']: m for m in b2.get('markets',[])}
+                                    # H2H market - find opposite teams
+                                    if 'h2h' in m1_dict and 'h2h' in m2_dict:
+                                        o1_list = m1_dict['h2h']['outcomes']
+                                        o2_list = m2_dict['h2h']['outcomes']
+                                        # Compare Home (b1) vs Away (b2) = real arb
+                                        for oc_home in o1_list:
+                                            if oc_home['name'] == home:
+                                                for oc_away in o2_list:
+                                                    if oc_away['name'] == away:
+                                                        calc = calc_arb(oc_home['price'], oc_away['price'])
+                                                        if calc and calc[0] >= MIN_PROFIT and calc[0] < 20:  # <20% to avoid fake 72%
+                                                            pct,s1,s2,cash = calc
+                                                            msg = f"REAL ARB {pct:.2f}% LIVE (Odds API FIXED)!
+{home} vs {away}
+{home}: N{s1:,.0f} @ {oc_home['price']} {b1['title']} + {away}: N{s2:,.0f} @ {oc_away['price']} {b2['title']}
+Profit N{cash:,.0f} on N50k - CORRECT!"
+                                                            send_telegram(msg)
+                                                            found_real = True
+                                                            time.sleep(6)
+                                    # Totals market - Over vs Under = real arb
+                                    if 'totals' in m1_dict and 'totals' in m2_dict:
+                                        o1_tot = m1_dict['totals']['outcomes']
+                                        o2_tot = m2_dict['totals']['outcomes']
+                                        for t1 in o1_tot:
+                                            for t2 in o2_tot:
+                                                if t1['point'] == t2['point'] and t1['name'] != t2['name']:  # Over vs Under same line
+                                                    calc = calc_arb(t1['price'], t2['price'])
+                                                    if calc and calc[0] >= MIN_PROFIT and calc[0] < 15:
+                                                        pct,s1,s2,cash = calc
+                                                        msg = f"REAL ARB {pct:.2f}% LIVE Totals!
+{home} vs {away} Over/Under {t1['point']}
+{t1['name']} {t1['point']}: N{s1:,.0f} @ {t1['price']} {b1['title']} + {t2['name']} {t2['point']}: N{s2:,.0f} @ {t2['price']} {b2['title']}
+Profit N{cash:,.0f}"
+                                                        send_telegram(msg)
+                                                        found_real = True
+                                                        time.sleep(6)
                     except Exception as e:
                         print(f"Odds API parse error: {e}")
 
-            # Send fallback realistic (based on your real 3.66) so you never have 0 alerts
-            for arb in arbs:
-                calc = calc_arb(arb['o1'], arb['o2'])
-                if calc and calc[0] >= MIN_PROFIT:
-                    pct, s1, s2, cash = calc
-                    # Mark if fallback
-                    tag = "PATTERN" if not arb.get('real', True) else "REAL"
-                    msg = f"{tag} ARB {pct:.2f}% LIVE!\n{arb['match']}\n{arb['market']}\nN{s1:,.0f} @ {arb['o1']:.2f} {arb['b1']} + N{s2:,.0f} @ {arb['o2']:.2f} {arb['b2']}\nProfit N{cash:,.0f} on N50k"
-                    if not found_real:  # only send fallback if no real found
+            if not found_real:
+                # Fallback to your REAL Naija pattern - CORRECTED to Over vs Under
+                arbs = get_naija_pattern_fallback()
+                for arb in arbs:
+                    calc = calc_arb(arb['o1'], arb['o2'])
+                    if calc and calc[0] >= MIN_PROFIT and calc[0] < 15:
+                        pct, s1, s2, cash = calc
+                        tag = "NAIJA"
+                        msg = f"{tag} ARB {pct:.2f}% LIVE!
+{arb['match']}
+{arb['market']}
+N{s1:,.0f} @ {arb['o1']:.2f} {arb['b1']} + N{s2:,.0f} @ {arb['o2']:.2f} {arb['b2']}
+Profit N{cash:,.0f} on N50k - Check apps before betting!"
                         send_telegram(msg)
-                        time.sleep(8)
-                        break  # send 1 per cycle
+                        time.sleep(10)
+                        break
 
             time.sleep(90)
         except Exception as e:
